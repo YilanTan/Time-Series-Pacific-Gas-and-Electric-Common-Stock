@@ -2,7 +2,7 @@
 Anlysis Pacific Gas and Electric Common Stock by GARCH Model
 
    - Time-Series-Pacific-Gas-and-Electric-Common-Stock.Rmd: Original code of our report  
-   - Time-Series-Pacific-Gas-and-Electric-Common-Stock.pdf: Final report    
+   - Time-Series-Pacific-Gas-and-Electric-Common-Stock.html: Final report    
    - PGEmonthly9621.txt: Raw data  
    
 ## Introduction

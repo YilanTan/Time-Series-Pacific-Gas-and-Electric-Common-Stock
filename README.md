@@ -17,4 +17,4 @@ The data give simple monthly returns for Pacific Gas and Electric common stock f
 
 1. From our analysis, there are two bankruptcies in 2001 and 2018. The reasons are the price increase for the company to buy energy and the CA fire. The magnitude of the impact of CA fire was more dramatic, more abrupt. 
 2. We use the $arima(5,0,0)(1,0,0)_{12}$ model to capture the trend and seasonal structure. 
-3. The GARCH(1,1) model based on $arima(5,0,0)(1,0,0)_{12}$ captures the volatility change well (except for the significant return in Nov. 2018). The Kurtosis value, which indicates the tails of a distribution comparing to the normal one, drops from 0.6 to 3.67.
+3. The GARCH(1,1) model based on $arima(5,0,0)(1,0,0)_{12}$ captures the volatility change well (except for the significant return in Nov. 2018). The Kurtosis value, which indicates the tails of a distribution comparing to the normal one, drops from 3.67 to 0.6.

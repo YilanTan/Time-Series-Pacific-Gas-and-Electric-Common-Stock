@@ -1,0 +1,304 @@
+---
+title: "Time Series Analysis: Pacific Gas and Electric Common Stock"
+author: "Yilan Tan"
+date: "2022-12-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(TSstudio)
+library(ggplot2)
+library(scales)
+library(tseries)
+library(lubridate)
+library(tidyverse)
+library(moments)
+library(mlbench)
+library(kableExtra)
+library(fGarch)
+library(lmtest)
+library(forecast)
+library(hwwntest)
+library(sysid)
+```
+
+## Introduction
+
+During 2000 and 2001 the energy market in California experienced severe price increases which PG&E could not pass along to its customers, and the company was forced to file for bankruptcy in April 2001. In early 2019 Pacific Gas and Electric again was forced to file for bankruptcy.
+
+The data give simple monthly returns for Pacific Gas and Electric common stock for the period 1996 through 2021 and are in the file PGEmonthly9621.txt.
+
+```{r, include=FALSE}
+PGE <- read.csv("PGEmonthly9621.txt", header=T)
+attach(PGE)
+#Time<-as.numeric(Time)
+fMonth<-as.factor(Month)
+PGE<-data.frame(PGE,fMonth)
+PGE.ts<-ts(PGE,start=c(1996,1),freq=12)
+Return.ts<-ts(PGE$Return,start=c(1996,1),freq=12)
+```
+
+## 1. Exploratory Data Analysis
+
+The returns show two periods of high volatility, both associated with bankruptcies. Otherwise volatility is mostly steady and relatively mild. Note that the second period of high volatility arises quite abruptly, with a severe negative return for November 2018. A second large negative return occurred in January 2019. A smaller drop of the returns during October to December 2017 is also visible in the plot.
+
+The California electricity crisis was caused by market manipulations, shutdowns of pipelines by energy suppliers, and a law in California which capped retail electricity prices. It began in May 2000, and Pacific Gas and Electric was forced to file for bankruptcy in April 2001. Energy prices came back to normal in September 2001. The company emerged from bankruptcy in April 2004.
+
+California was devastated by wildfires during the years 2015 to 2018, leading to many deaths and considerable destruction of residential and commercial property. The cause for many of the fires was determined to be lack of proper maintenance by Pacific Gas and Electric of its electrical grid. For example, the 2018 Camp Fire destroyed more than 18,000 buildings and essentially eliminated the town of Paradise. Facing massive claims for its negligence, the company filed for bankruptcy in January 2019. Its exit from bankruptcy was approved in June 2020.  This bankruptcy was the largest in U.S. history for a utility company.
+
+```{r}
+plot(Return.ts, xlab="Time",ylab="Return",main="TS Plot: Return vs. Time, 1996.1-2021.12")
+abline(h=0,col="blue")
+```
+
+```{r}
+mean(PGE$Return)
+```
+
+### 1.1 Normality Anlysis
+
+The normal quantile plot has very heavy tails in both ends, indicating a non-normal distribution of the return data and a high Kurtosis value. We also observes lots of outliers, both positive and negative returns, all appears during the recession periods.
+
+```{r}
+qq<-qqnorm(Return)
+qqline(Return)
+```
+
+### 1.2 Skewness and Kurtosis 
+
+The skewness value is -0.3899935, which is relatively close to zero, while the kurtosis value is 8.64155, which is quite significant. This indicates the return data has slight skewness towards larger values and the distribution according to normality is heavy-tailed, as we observed from the TS plot. Maybe the lower tail is a little bit heavier than the upper tail, but this would not be a severe concern in fitting a garch model.
+
+```{r}
+skewness(PGE$Return)
+kurtosis(PGE$Return)
+```
+
+We are going to finally fit a GARCH model and start by choosing an appropriate ARIMA model.
+
+### 1.3 Spectrum Anlysis
+
+Our sample size is 312, which is enough for doing a spectral analysis. Half of the squared root of 312 is 8.831761, therefore we choose span equals to 9.
+
+```{r}
+nrow(PGE)^(0.5)/2
+```
+
+The spectrum density plot of the returns data doesn't show significant peaks at frequencies 1/2, 2/12, 3/12, 4/12, 5/12, and 6/12. This indicates no strong monthly structure in our data.
+
+```{r, message=FALSE}
+spectrum(Return, span=9)
+abline(v=c(1/12,2/12,3/12,4/12,5/12,6/12),col="red",lty=2)
+abline(v=c(0.220, 0.348, 0.432), col="blue", lty=2)
+```
+
+## 2. ARIMA Model
+
+From the ACF and PACF plots, we can see there are only a few significant lags, indicating not a lot of seasonal and trend structure in our data. In the ACF plot, lags 5 and 12 significant, especially for the lag 12. There is modest significance at lags 4 and 21. In the partial correlation plot, lag 12 is the most significant one. There are modest significance at lags 4, 5, and 21. In order to avoid over-fitting, we are going to compare ar(5) model and $arima(5,0,0)(1,0,0)_{12}$ to see if the seasonal term is necessary.
+
+```{r}
+par(mfrow=c(1,2))
+acf(Return, 36)
+pacf(Return, 36)
+```
+
+By comparing the AIC of two models, $arima(5,0,0)(1,0,0)_{12}$ model has significantly lower value.
+
+```{r}
+arima1<-arima(PGE$Return,order=c(5,0,0))
+arima2<-arima(PGE$Return,order=c(5,0,0), seasonal = list(order = c(1, 0, 0),
+period = 12))
+
+aic <- c(arima1$aic, arima2$aic)
+aic
+```
+
+We can see there is lag 12 is quite significant in acf and pacf plots of the residuals of ar(5) model, while only lag 21 is a bit over the blue line in acf of model $arima(5,0,0)(1,0,0)_{12}$. We are not worry about this because it is not significant.
+
+```{r}
+par(mfrow=c(1,2))
+acf(resid(arima1))
+pacf(resid(arima1))
+```
+
+```{r}
+par(mfrow=c(1,2))
+acf(resid(arima2))
+pacf(resid(arima2))
+```
+
+From the spectrum density plots of residuals, $arima(5,0,0)(1,0,0)_{12}$ model is slightly flatter than ar(5) model. Double of the blue segment above the notch is obviously longer than the full extent of the spectrum for ar(5). Also, we can see three valleys in the spectrum density plot that affects the notch segment.
+
+```{r}
+par(mfrow=c(1,2))
+spectrum(resid(arima1), span=8)
+spectrum(resid(arima2), span=8)
+```
+
+The bartlett test confidently does not reject the hypothesis of white noise reduction in both models. $arima(5,0,0)(1,0,0)_{12}$ model has a slightly higher value but both models are shown to be acceptable according to the bartlett test.
+
+```{r}
+bartlettB.test(resid(arima1))
+bartlettB.test(resid(arima2))
+```
+
+The normal quantile plots of residuals of two models are similar to the plot of original data. There is no obvious difference between two models in terms of the residual normal quantile plot.
+
+```{r}
+par(mfrow=c(1,2))
+qq<-qqnorm(resid(arima1))
+qqline(resid(arima1))
+qq<-qqnorm(resid(arima2))
+qqline(resid(arima2))
+```
+
+The kurtosis come down a little bit for both models. The value for ar(5) model is slightly lower, while both models decrease the kurtosis values. The skewness rise a little bit but still small.
+
+```{r}
+print("Origin Data")
+skewness(PGE$Return)
+kurtosis(PGE$Return)
+
+print("arima(5,5)")
+skewness(resid(arima1))
+kurtosis(resid(arima1))
+
+print("arima(3,0)")
+skewness(resid(arima2))
+kurtosis(resid(arima2))
+```
+
+The estimates of high orders show significance in both model, while the coefficient test shows that the seasonal estimate is very significant (p-value is approsimately zero).
+
+```{r}
+coeftest(arima1)
+coeftest(arima2)
+```
+
+Overall, we choose model $arima(5,0,0)(1,0,0)_{12}$.
+
+## 3. GARCH Model
+
+```{r}
+u <- resid(arima2)
+u2.ts<-ts(u^2,start=c(1996,1),freq=12)
+plot(u2.ts, xlab="Time",ylab="Squared Residuals",main="Squared Residuals from Model2")
+```
+
+The residuals of the $arima(5,0,0)(1,0,0)_{12}$ model do not have correlations of any concerns while the squared residuals have significant correlations. We see a lot of significant lags in both plots. Also, there is an obvious decline trend in acf plot. This indicates that the volatility is noteworthy.
+
+```{r}
+par(mfrow=c(1,2))
+acf(u^2)
+pacf(u^2)
+```
+
+Both coefficients in GARCH(1,1) are very significant.
+
+```{r}
+model <- arima(ts(u^2), order = c(1,0,1))
+coeftest(model)
+```
+
+There are still some significant lags in residuals acf and pacf plots of the GARCH(1,1) model. But comparing to the plots of squared residuals, they are much less significant. We have eliminated some trend structures.
+
+```{r}
+par(mfrow=c(1,2))
+acf(resid(model), 40)
+pacf(resid(model), 40)
+```
+
+### Compare three GARCH(1,1) model
+
+We fit a GARCH(1,1) model. We are going to focus on the omega, alpha, beta estimates' significance. The sum of the estimates of alpha1 and beta1 is 0.1649+0.8237= 0.9896, less than one, indicating that our model is stable. Also, three estimates have p-values less than 0.05, indicating they are all significant.
+
+```{r}
+model1<-garchFit(~garch(1,1),data=ts(resid(arima2)),trace=FALSE)
+#model2<-garchFit(~arma(5,0)+garch(1,1),data=Return.ts,trace=FALSE, cond.dist="std")
+#model3<-garchFit(~arma(5,0)+garch(1,1),data=Return.ts,trace=FALSE, cond.dist="sstd")
+```
+
+```{r}
+summary(model1)
+```
+
+From the standardize residuals plot, we can see there is a noticeable outlier around year 2018 with a smaller drop nearby. Except for the outlier, the residuals fluctuates around a mean of zero, and the volatility is relatively stable.
+
+```{r}
+residsstdzd<-residuals(model1,standardize=TRUE)
+residsstdzd.ts<-ts(residsstdzd,start=c(1996,1),freq=12)
+plot(residsstdzd.ts,type='l')
+abline(h=0,col="blue")
+```
+
+```{r}
+par(mfrow=c(1,2))
+acf(residsstdzd, 40)
+pacf(residsstdzd, 40)
+```
+
+Most points in Normal Q-Q plot follows the theoretical quantile line but there are slight deviation with a few slight outliers near the left end of the line. There is noticeable outlier on the lower left corner. A few low return values are slightly overestimated by the model. Overall, the plot indicates a normal distribution. Related to the residual vs. time plot, these low return values may occur in year 2018.
+
+```{r}
+qq<-qqnorm(residsstdzd)
+qqline(residsstdzd)
+```
+
+The spectrum density plot is flat except for a valley near frequency 0.4. Double of the blue line above the notch is less that the full extension but it is not a big problem. The reason is that if we ignore the valley, the extend of the remaining part of the spectrum density plot are about the same length of the blue line above the notch.
+
+```{r}
+spectrum(residsstdzd, span=9)
+abline(v=c(1/12,2/12,3/12,4/12,5/12,6/12),col="red",lty=2)
+abline(v=c(0.220, 0.348, 0.432), col="blue", lty=2)
+```
+
+The p-value of Bartlett B Test is 0.7812, which is significant, i.e., p-value > 0.05. We are not able to reduce the null hypothesis. This indicates that the white noise reduction is successful by the model fit.
+
+```{r}
+bartlettB.test(residsstdzd)
+```
+
+The kurtosis test shows a increase by our model, which is not as expected. We want our kurtosis value of residuals are less than 3 or at least around 3. Related to the residual vs. time plot and the normal quantile plot of residuals, this might be the influence of outliers around year 2018.
+
+```{r}
+print("Origin Data")
+skewness(PGE$Return)
+kurtosis(PGE$Return)
+
+print("arima(12,0)-garch(1,1)")
+skewness(residsstdzd)
+kurtosis(residsstdzd)
+```
+
+By sorting the data of returns, we can see the lowest and highest values are all around year 2001 or after year 2018. These are the periods related to two bankrupcies.
+
+```{r}
+head(PGE[order(Return),],10)
+tail(PGE[order(Return),],10)
+```
+
+We try to exclude the outlier 275 of Nov, 2018, which is the most significant one on the lower left corner of the residual normal quantile plot. Comparing to the kurtosis of the original data, the value of our model's residual is significantly lower. The value is 3.678502, which is closer to 3.
+
+```{r}
+print("Origin Data")
+skewness(PGE$Return[-c(275)])
+kurtosis(PGE$Return[-c(275)])
+
+print("arima(12,0)-garch(1,1)")
+skewness(residsstdzd[-c(275)])
+kurtosis(residsstdzd[-c(275)])
+```
+
+After excluding the outlier 275, the spectrum density plot of residuals is quite flat and double of the blue line above the notch is obviously longer than the full extend. This indicates that Nov.2018 is the reason of the valley in previous spectrum density plot. Also, it is the point on the lower left corner of normal quantile plot.
+
+```{r}
+par(mfrow=c(1,2))
+spectrum(residsstdzd[-c(275)], span=9)
+qq<-qqnorm(residsstdzd[-c(275)])
+qqline(residsstdzd[-c(275)])
+```
+
+## Conclusion
+
+From our analysis, there are two bankruptcies in 2001 and 2018. The reasons are the price increase for the company to buy energy and the CA fire. The magnitude of the impact of CA fire was more dramatic, more abrupt. We use the $arima(5,0,0)(1,0,0)_{12}$ model to capture the trend and seasonal structure. The GARCH(1,1) model based on $arima(5,0,0)(1,0,0)_{12}$ captures the volatility change well (except for the significant return in Nov. 2018). The Kurtosis value, which indicates the tails of a distribution comparing to the normal one, drops from 0.6 to 3.67. In sum, our choice of this two-steps GARCH model is quite strong for the dataset.
